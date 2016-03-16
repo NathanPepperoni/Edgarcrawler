@@ -35,7 +35,7 @@
             this.directoryPanel = new System.Windows.Forms.Panel();
             this.directoryLabel = new System.Windows.Forms.Label();
             this.estimatesLabel = new System.Windows.Forms.Label();
-            this.progressBar1 = new System.Windows.Forms.ProgressBar();
+            this.CIKupdateProgressBar = new System.Windows.Forms.ProgressBar();
             this.label3 = new System.Windows.Forms.Label();
             this.scanButton = new System.Windows.Forms.Button();
             this.scanInfoPanel.SuspendLayout();
@@ -110,10 +110,10 @@
             // 
             // progressBar1
             // 
-            this.progressBar1.Location = new System.Drawing.Point(39, 58);
-            this.progressBar1.Name = "progressBar1";
-            this.progressBar1.Size = new System.Drawing.Size(203, 23);
-            this.progressBar1.TabIndex = 5;
+            this.CIKupdateProgressBar.Location = new System.Drawing.Point(39, 58);
+            this.CIKupdateProgressBar.Name = "progressBar1";
+            this.CIKupdateProgressBar.Size = new System.Drawing.Size(203, 23);
+            this.CIKupdateProgressBar.TabIndex = 5;
             // 
             // label3
             // 
@@ -139,7 +139,7 @@
             this.AutoScaleDimensions = new System.Drawing.SizeF(6F, 13F);
             this.AutoScaleMode = System.Windows.Forms.AutoScaleMode.Font;
             this.ClientSize = new System.Drawing.Size(289, 133);
-            this.Controls.Add(this.progressBar1);
+            this.Controls.Add(this.CIKupdateProgressBar);
             this.Controls.Add(this.directoryPanel);
             this.Controls.Add(this.scanInfoPanel);
             this.Controls.Add(this.directoryButton);
@@ -166,7 +166,7 @@
         private System.Windows.Forms.Panel scanInfoPanel;
         private System.Windows.Forms.Label estimatesLabel;
         private System.Windows.Forms.Label label3;
-        private System.Windows.Forms.ProgressBar progressBar1;
+        private System.Windows.Forms.ProgressBar CIKupdateProgressBar;
         private System.Windows.Forms.Button scanButton;
         private System.Windows.Forms.Panel directoryPanel;
         private System.Windows.Forms.Label directoryLabel;

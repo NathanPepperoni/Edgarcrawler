@@ -15,14 +15,12 @@ namespace Edgarcrawler
     public partial class EdgarCrawl : Form
     {
         List<List<string>> CIKtable = new List<List<string>>();
-        List<Task> activeTasks = new List<Task>();
-        int pdfDocuments = 0;
         long totalBytes = 0;
-        long newBytes = 0;
-        string path = "#@!";
+        string path = "empty";
         string appdata = Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData)+"\\NathanPettorini\\Edgarcrawler\\";
         bool mainThreadAlive = true;
         float completed = 0;
+        Queue<List<string>> pages = new Queue<List<string>>();
 
 
         public EdgarCrawl()
@@ -42,6 +40,7 @@ namespace Edgarcrawler
                     totalBytes = long.Parse(File.ReadAllText(appdata + "size"));
                     CIKtable = CIKtable.Skip(count).ToList();
                     completed = count;
+                    Task queueFillTask = Task.Run(() => populatePages());
                     scan();
                 }
                 else
@@ -60,38 +59,54 @@ namespace Edgarcrawler
             }
         }
 
-        private void test()
-        {
-            File.WriteAllText(appdata+"test.txt", "Tasd");
-        }
 
-        private async void GUIload(Object sender, EventArgs e)
+        private void GUIload(Object sender, EventArgs e)
         {
-            Task t = Task.Run(() => FetchCIK());
-            activeTasks.Add(t);
-            await t;
-            activeTasks.Remove(t);
+            Task<List<List<string>>> CIKtask = Task<List<List<string>>>.Run(() => FetchCIK());
+            while (!CIKtask.Wait(60))
+            {
+                Application.DoEvents();
+            }
+            CIKtable = CIKtask.Result;
             label3.Visible = false;
-            progressBar1.Visible = false;
+            CIKupdateProgressBar.Visible = false;
             directoryButton.Visible = true;
             scanButton.Visible = true;
             partialScanCheck();
         }
 
-        private void FetchCIK()
+        private async Task<List<List<string>>> FetchCIK()
         {
             string HTML = webGet("https://www.sec.gov/edgar/NYU/cik.coleft.c",0);
-            string[] datasplit = HTML.Split('\n');
+            List<string> datasplit = HTML.Split('\n').ToList();
             List<List<string>> table = new List<List<string>>();
 
             this.Invoke((MethodInvoker)delegate
             {
                 label3.Text = "Updating CIK data from www.sec.gov...";
-                progressBar1.Maximum = datasplit.Length;
-                progressBar1.Step = 1;
+                CIKupdateProgressBar.Maximum = datasplit.Count;
+                CIKupdateProgressBar.Step = 1;
             });
+            int stepSize = datasplit.Count/4;
+            Task<List<List<string>>> thread1 = Task<List<List<string>>>.Factory.StartNew(() => CIKparse(datasplit.GetRange(0, stepSize)));
+            Task<List<List<string>>> thread2 = Task<List<List<string>>>.Factory.StartNew(() => CIKparse(datasplit.GetRange(stepSize, stepSize)));
+            Task<List<List<string>>> thread3 = Task<List<List<string>>>.Factory.StartNew(() => CIKparse(datasplit.GetRange(stepSize*2, stepSize)));
+            Task<List<List<string>>> thread4 = Task<List<List<string>>>.Factory.StartNew(() => CIKparse(datasplit.Skip(stepSize*3).ToList()));
+            Task<List<List<string>>>[] threads = new Task<List<List<string>>>[] { thread1, thread2, thread3, thread4 };
 
-            foreach (string row in datasplit)
+            foreach (Task<List<List<string>>> thread in threads)
+            {
+                table = table.Concat(await thread).ToList();
+            }
+
+
+            return table;
+        }
+
+        private List<List<string>> CIKparse(List<string> datalist)
+        {
+            List<List<string>> subtable = new List<List<string>>();
+            foreach (string row in datalist)
             {
                 string[] rowsplit = row.Split(':');
                 if (rowsplit.Count() > 3)
@@ -103,28 +118,32 @@ namespace Edgarcrawler
                     }
                     companyName = companyName.Substring(0, companyName.Length - 1);
                     string CIK = rowsplit[rowsplit.Count() - 2];
-                    table.Add(new List<string> { companyName, CIK });
+                    subtable.Add(new List<string> { companyName, CIK });
                 }
                 else if (rowsplit.Count().Equals(3))
                 {
-                    table.Add(new List<string> { rowsplit[0], rowsplit[1] });
+                    subtable.Add(new List<string> { rowsplit[0], rowsplit[1] });
                 }
 
                 try
                 {
                     this.Invoke((MethodInvoker)delegate
                     {
-                        progressBar1.Increment(1);
+                        CIKupdateProgressBar.Increment(1);
                     });
                 }
-                catch (System.ObjectDisposedException)
+                catch (ObjectDisposedException)
                 {
                     break;
                 }
             }
-
-            CIKtable = table;
+            return subtable;
         }
+
+
+
+
+
 
         private void writePdfs(List<string> urls, string companyName)
         {
@@ -154,16 +173,14 @@ namespace Edgarcrawler
             byte[] pdfdata = pdfWebClient.DownloadData(url);
             File.WriteAllBytes(path + fileName + ".pdf", pdfdata);
             totalBytes += pdfdata.Length;
-            newBytes += pdfdata.Length;
-            pdfDocuments += 1;
         }
 
         private List<string> extractPdfURL(List<string> urls)
         {
             List<string> PDFurls = new List<string>();
-            foreach (string url in urls)
+            List<string> htmls = webGet(urls).Result;
+            foreach (string HTML in htmls)
             {
-                string HTML = webGet(url,0);
                 string[] data = HTML.Split('\n');
                 foreach (string line in data)
                 {
@@ -176,9 +193,8 @@ namespace Edgarcrawler
             return PDFurls;
         }
 
-        private List<string> extractDocuments(string url)
+        private List<string> extractDocuments(string HTML)
         {
-            string HTML = webGet(url,0);
             string[] datasplit = HTML.Split('\n');
             List<string> documents = new List<string>();
             foreach (string line in datasplit)
@@ -189,6 +205,55 @@ namespace Edgarcrawler
                 }
             }
             return documents;
+        }
+
+        private async Task<List<string>> webGet(List<string> urls)
+        {
+            List<string> htmls = new List<string>();
+            List<Task<string>> tasks = new List<Task<string>>();
+            foreach (string url in urls)
+            {
+                tasks.Add(webGetAsync(url));
+            }
+            foreach (Task<string> task in tasks)
+            {
+                htmls.Add(await task);
+            }
+            return htmls;
+        }
+
+        private async Task<List<byte[]>> pfgGet(List<string> urls)
+        {
+            List<byte[]> bytes = new List<byte[]>();
+            List<Task<byte[]>> tasks = new List<Task<byte[]>>();
+            foreach (string url in urls)
+            {
+                tasks.Add(pdfGetAsync(url));
+            }
+            foreach (Task<byte[]> task in tasks)
+            {
+                bytes.Add(await task);
+            }
+            return bytes;
+        }
+
+        private async Task<string> webGetAsync(string url)
+        {
+            Task<string> getHtml = Task<string>.Factory.StartNew(() => webGet(url, 0));
+            string html = await getHtml;
+            return html;
+        }
+
+        private async Task<byte[]> pdfGetAsync(string url)
+        {
+            Task<byte[]> getBytes = Task.Factory.StartNew(() => {
+                WebClient pdfWebClient = new WebClient();
+                byte[] pdfdata = pdfWebClient.DownloadData(url);
+                return pdfdata;
+            });
+            byte[] data = await getBytes;
+            return data;
+
         }
 
         private string webGet(string url, int trycount)
@@ -236,12 +301,55 @@ namespace Edgarcrawler
 
         private void startScan(object sender, EventArgs e)
         {
+            Task queueFillTask = Task.Run(() => populatePages());
             scan();
+        }
+
+        private async void populatePages()
+        {
+
+            Task<List<string>> thread1 = Task<List<string>>.Factory.StartNew(() => webGetThreadWrapper(CIKtable[0][1], CIKtable[0][0]));
+            Task<List<string>> thread2 = Task<List<string>>.Factory.StartNew(() => webGetThreadWrapper(CIKtable[1][1], CIKtable[1][0]));
+            Task<List<string>> thread3 = Task<List<string>>.Factory.StartNew(() => webGetThreadWrapper(CIKtable[2][1], CIKtable[2][0]));
+            Task<List<string>> thread4 = Task<List<string>>.Factory.StartNew(() => webGetThreadWrapper(CIKtable[3][1], CIKtable[3][0]));
+            Task<List<string>>[] threads = new Task<List<string>>[] { thread1, thread2, thread3, thread4 };
+
+            int i = 4;
+
+            while (i < CIKtable.Count)
+            {
+                if (!mainThreadAlive)
+                {
+                    break;
+                }
+                if (pages.Count < 20)
+                {
+                    int j = 0;
+                    while (j < 4)
+                    {
+                        if (threads[j].IsCompleted)
+                        {
+                            List<string> result = await threads[j];
+                            pages.Enqueue(result);
+                            threads[j] = Task<List<string>>.Factory.StartNew(() => webGetThreadWrapper(CIKtable[i][1], CIKtable[i][0]));
+                            i++;
+                        }
+                        j++;
+                    }
+                }
+                Application.DoEvents();
+
+            }
+        }
+
+        private List<string> webGetThreadWrapper(string CIK, string companyName)
+        {
+            return new List<string> { webGet("http://www.sec.gov/cgi-bin/browse-edgar?action=getcompany&CIK=" + CIK + "&type=regdex&dateb=&owner=exclude&count=100", 0), companyName};
         }
 
         private void scan()
         {
-            if (path.Equals("#@!"))
+            if (path.Equals("empty"))
             {
                 MessageBox.Show("Please select a directory for the PDF files.");
             }
@@ -255,40 +363,46 @@ namespace Edgarcrawler
                 int countTotal = CIKtable.Count;
                 int grandTotal = countTotal + Convert.ToInt32(completed);
                 progressBar.Visible = true;
-                progressBar.Maximum = countTotal+ Convert.ToInt32(completed);
+                progressBar.Maximum = countTotal + Convert.ToInt32(completed);
                 progressBar.Value = Convert.ToInt32(completed);
                 progressBar.Step = 1;
                 float processed = 0;
                 float sumTime = 450;
-                float remainingTime = countTotal*sumTime; //est. time to completion in miliseconds
+                float remainingTime = countTotal * sumTime; //est. time to completion in miliseconds
 
                 File.WriteAllText(appdata + "path", path);
 
-                foreach (List<string> page in CIKtable)
+                for (int i = 0; i<CIKtable.Count; i++)
                 {
+                    long ts = DateTime.Now.Ticks;
+                    while (pages.Count.Equals(0))   //wait for the queue to fill back up
+                    {
+                        if (!mainThreadAlive)
+                        {
+                            break;
+                        }
+                        Application.DoEvents();
+                    }
                     if (!mainThreadAlive)
                     {
                         break;
                     }
-                    long ts = DateTime.Now.Ticks;
-                    string url = "http://www.sec.gov/cgi-bin/browse-edgar?action=getcompany&CIK=" + page[1] + "&type=regdex&dateb=&owner=exclude&count=100";
-                    Task t = Task.Run(() => writePdfs((extractPdfURL(extractDocuments(url))), page[0]));
-                    activeTasks.Add(t);
-                    while (!t.Wait(30))
+                    List<string> page = pages.Dequeue();
+                    Task t = Task.Run(() => writePdfs((extractPdfURL(extractDocuments(page[0]))), page[1]));
+                    while (!t.Wait(60))
                     {
                         Application.DoEvents();
                     }
-                    activeTasks.Remove(t);
                     progressBar.Increment(1);
-                    label1.Text = "now processing: " + page[0].Substring(0, Math.Min(15, page[0].Length));
+                    label1.Text = "now processing: " + page[1].Substring(0, Math.Min(15, page[1].Length));
                     progressBar.Refresh();
                     label1.Refresh();
                     completed += 1;
                     processed += 1;
                     long timeTaken = (DateTime.Now.Ticks - ts) / 10000;
                     sumTime = (sumTime + timeTaken);
-                    remainingTime = (countTotal - processed) * sumTime/processed;
-                    if (processed <= 200)
+                    remainingTime = (countTotal - processed) * sumTime / processed;
+                    if (processed <= 300)
                     {
                         estimatesLabel.Text = "Calculating est. time to completion...";
                         estimatesLabel.Text = estimatesLabel.Text + "\nEst. size on disk: calculating...";
