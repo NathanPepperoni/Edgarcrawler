@@ -20,6 +20,9 @@ namespace Edgarcrawler
         string appdata = Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData)+"\\NathanPettorini\\Edgarcrawler\\";
         bool mainThreadAlive = true;
         float completed = 0;
+        DateTime beforeDate = DateTime.MaxValue;
+        DateTime afterDate = DateTime.MinValue;
+
         Queue<List<string>> pages = new Queue<List<string>>();
 
 
@@ -36,6 +39,12 @@ namespace Edgarcrawler
                 if (MessageBox.Show("Unfinished crawl detected. Recover and resume previous crawl? Selecting \"no\" will remove the unfinished scan.", "Resume crawl", MessageBoxButtons.YesNo) == DialogResult.Yes)
                 {
                     path = File.ReadAllText(appdata + "path");
+                    Directory.CreateDirectory(path + "LLC\\");
+                    Directory.CreateDirectory(path + "LP\\");
+                    Directory.CreateDirectory(path + "LTD\\");
+                    string[] filterData = File.ReadAllText(appdata + "filter").Split('\n');
+                    afterDate = DateTime.Parse(filterData[0]);
+                    beforeDate = DateTime.Parse(filterData[1]);
                     int count = int.Parse(File.ReadAllText(appdata + "bookmark"));
                     totalBytes = long.Parse(File.ReadAllText(appdata + "size"));
                     CIKtable = CIKtable.Skip(count).ToList();
@@ -48,14 +57,19 @@ namespace Edgarcrawler
                     File.Delete(appdata + "bookmark");
                     File.Delete(appdata + "path");
                     File.Delete(appdata + "size");
+                    File.Delete(appdata + "filter");
                     directoryLabel.Visible = true;
                     directoryPanel.Visible = true;
+                    FilterCheck.Visible = true;
+                    filterLabel.Visible = true;
 
                 }
             }
             else {
                 directoryLabel.Visible = true;
                 directoryPanel.Visible = true;
+                FilterCheck.Visible = true;
+                filterLabel.Visible = true;
             }
         }
 
@@ -169,28 +183,117 @@ namespace Edgarcrawler
             {
                 fileName = fileName.Replace(item, String.Empty);
             }
+            string folder = getFolder(fileName);
+            byte [] pdfData = downloadPDF(url);
+            if (pdfData.Length > 0)
+            {
+                File.WriteAllBytes(folder + fileName + ".pdf", pdfData);
+                totalBytes += pdfData.Length;
+            }
+        }
+
+        private string getFolder(string fileName)
+        {
+            string newPath = path;
+
+            if (fileName.ToUpper().Contains("LLC"))
+            {
+                newPath = path + "LLC\\";
+            }
+            else if (fileName.ToUpper().Contains("LP"))
+            {
+                newPath = path + "LP\\";
+            }
+            else if (fileName.ToUpper().Contains("LTD"))
+            {
+                newPath = path + "LTD\\";
+            }
+
+            return newPath;
+        }
+
+        private byte[] downloadPDF(string url)
+        {
             WebClient pdfWebClient = new WebClient();
-            byte[] pdfdata = pdfWebClient.DownloadData(url);
-            File.WriteAllBytes(path + fileName + ".pdf", pdfdata);
-            totalBytes += pdfdata.Length;
+            byte[] pdfData = new byte[] { };
+            try {
+                pdfData = pdfWebClient.DownloadData(url);
+            }
+            catch
+            {
+                pdfData = downloadPDF(url, 0);
+            }
+
+            return pdfData;
+        }
+
+        private byte[] downloadPDF(string url, int attempts)
+        {
+            WebClient pdfWebClient = new WebClient();
+            byte[] pdfData = new byte[] { };
+            try
+            {
+                pdfData = pdfWebClient.DownloadData(url);
+            }
+            catch
+            {
+                if (attempts > 5)
+                {
+                    return new byte[] { };
+                }
+                else
+                {
+                    System.Threading.Thread.Sleep(10000);
+                    downloadPDF(url, attempts + 1);
+                }
+
+            }
+
+            return pdfData;
         }
 
         private List<string> extractPdfURL(List<string> urls)
         {
             List<string> PDFurls = new List<string>();
             List<string> htmls = webGet(urls).Result;
+
             foreach (string HTML in htmls)
             {
-                string[] data = HTML.Split('\n');
-                foreach (string line in data)
-                {
-                    if (line.Contains("scanned.pdf</a></td>"))
+                DateTime filingdate = getFilingDate(HTML);
+                if ((DateTime.Compare(filingdate,afterDate)>=0) && (DateTime.Compare(filingdate, beforeDate)<=0)) {
+                    string[] data = HTML.Split('\n');
+                    foreach (string line in data)
                     {
-                        PDFurls.Add("http://www.sec.gov" + line.Substring(37, (line.Length - 59)));
+                        if (line.Contains("scanned.pdf</a></td>"))
+                        {
+                            PDFurls.Add("http://www.sec.gov" + line.Substring(37, (line.Length - 59)));
+                        }
                     }
                 }
             }
             return PDFurls;
+        }
+
+        private DateTime getFilingDate(string HTML)
+        {
+            DateTime filingDate = DateTime.MinValue;
+            int i = 0;
+            string[] HTMLsplit = HTML.Split('\n');
+            foreach (string line in HTMLsplit)
+            {
+                if (line.Contains("<div class=\"infoHead\">Filing Date</div>"))
+                {
+                    try {
+                        filingDate = DateTime.Parse(HTMLsplit[i + 1].Substring(27, HTMLsplit[i + 1].Length - 33));
+                    }
+                    catch
+                    {
+                        // no handling needed. If the filingdate found is not a valid time format, then the method will return the minimum DateTime value.
+                    }
+                }
+                i++;
+            }
+            return filingDate;
         }
 
         private List<string> extractDocuments(string HTML)
@@ -222,7 +325,7 @@ namespace Edgarcrawler
             return htmls;
         }
 
-        private async Task<List<byte[]>> pfgGet(List<string> urls)
+        private async Task<List<byte[]>> pdfGet(List<string> urls)
         {
             List<byte[]> bytes = new List<byte[]>();
             List<Task<byte[]>> tasks = new List<Task<byte[]>>();
@@ -232,7 +335,11 @@ namespace Edgarcrawler
             }
             foreach (Task<byte[]> task in tasks)
             {
-                bytes.Add(await task);
+                byte[] taskbytes = await task;
+                if (taskbytes.Length > 0)
+                {
+                    bytes.Add(await task);
+                }
             }
             return bytes;
         }
@@ -244,11 +351,10 @@ namespace Edgarcrawler
             return html;
         }
 
-        private async Task<byte[]> pdfGetAsync(string url)
+        private async Task<byte[]> pdfGetAsync(string url) //currently unused. Might try to incorporate later.
         {
             Task<byte[]> getBytes = Task.Factory.StartNew(() => {
-                WebClient pdfWebClient = new WebClient();
-                byte[] pdfdata = pdfWebClient.DownloadData(url);
+                byte[] pdfdata = downloadPDF(url);
                 return pdfdata;
             });
             byte[] data = await getBytes;
@@ -354,6 +460,8 @@ namespace Edgarcrawler
                 MessageBox.Show("Please select a directory for the PDF files.");
             }
             else {
+                FilterCheck.Visible = false;
+                filterLabel.Visible = false;
                 scanInfoPanel.Visible = true;
                 directoryButton.Visible = false;
                 scanButton.Visible = false;
@@ -371,6 +479,7 @@ namespace Edgarcrawler
                 float remainingTime = countTotal * sumTime; //est. time to completion in miliseconds
 
                 File.WriteAllText(appdata + "path", path);
+                File.WriteAllText(appdata + "filter", afterDate.ToString()+"\n"+beforeDate.ToString());
 
                 for (int i = 0; i<CIKtable.Count; i++)
                 {
@@ -436,6 +545,7 @@ namespace Edgarcrawler
                     File.Delete(appdata + "bookmark");
                     File.Delete(appdata + "path");
                     File.Delete(appdata + "size");
+                    File.Delete(appdata + "filter");
                     label1.Text = "";
                     estimatesLabel.Text = "All done!";
                 }
@@ -448,12 +558,45 @@ namespace Edgarcrawler
             DialogResult result = fbd.ShowDialog();
             path = fbd.SelectedPath + "\\";
             directoryLabel.Text = "Chosen directory: "+path;
-
+            Directory.CreateDirectory(path + "LLC\\");
+            Directory.CreateDirectory(path + "LP\\");
+            Directory.CreateDirectory(path + "LTD\\");
         }
 
         private void threadCloser(object sender, FormClosedEventArgs e)
         {
             mainThreadAlive = false;
+        }
+
+        private void setFilter(object sender, EventArgs e)
+        {
+            if (afterCheck.Checked)
+            {
+                afterDate = new DateTime(afterDatePicker.Value.Year, afterDatePicker.Value.Month, afterDatePicker.Value.Day);
+                
+
+                filterLabel.Text = "Date filter set!";
+            }
+            if (beforeCheck.Checked)
+            {
+                beforeDate = new DateTime(beforeDatePicker.Value.Year, beforeDatePicker.Value.Month, beforeDatePicker.Value.Day);
+                filterLabel.Text = "Date filter set!";
+            }
+        }
+
+        private void dateFilter(object sender, EventArgs e)
+        {
+            if (FilterCheck.Checked)
+            {
+                this.Height = 350;
+            }
+            else
+            {
+                this.Height = 200;
+                filterLabel.Text = "No filter set";
+                beforeDate = DateTime.MaxValue;
+                afterDate = DateTime.MinValue;
+            }
         }
     }
 }
