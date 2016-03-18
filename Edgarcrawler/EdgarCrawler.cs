@@ -25,7 +25,6 @@ namespace Edgarcrawler
 
         Queue<List<string>> pages = new Queue<List<string>>();
 
-
         public EdgarCrawl()
         {
             InitializeComponent();
@@ -62,7 +61,6 @@ namespace Edgarcrawler
                     directoryPanel.Visible = true;
                     FilterCheck.Visible = true;
                     filterLabel.Visible = true;
-
                 }
             }
             else {
@@ -72,7 +70,6 @@ namespace Edgarcrawler
                 filterLabel.Visible = true;
             }
         }
-
 
         private void GUIload(Object sender, EventArgs e)
         {
@@ -112,8 +109,6 @@ namespace Edgarcrawler
             {
                 table = table.Concat(await thread).ToList();
             }
-
-
             return table;
         }
 
@@ -138,7 +133,6 @@ namespace Edgarcrawler
                 {
                     subtable.Add(new List<string> { rowsplit[0], rowsplit[1] });
                 }
-
                 try
                 {
                     this.Invoke((MethodInvoker)delegate
@@ -208,7 +202,6 @@ namespace Edgarcrawler
             {
                 newPath = path + "LTD\\";
             }
-
             return newPath;
         }
 
@@ -223,7 +216,6 @@ namespace Edgarcrawler
             {
                 pdfData = downloadPDF(url, 0);
             }
-
             return pdfData;
         }
 
@@ -246,9 +238,7 @@ namespace Edgarcrawler
                     System.Threading.Thread.Sleep(10000);
                     downloadPDF(url, attempts + 1);
                 }
-
             }
-
             return pdfData;
         }
 
@@ -325,41 +315,11 @@ namespace Edgarcrawler
             return htmls;
         }
 
-        private async Task<List<byte[]>> pdfGet(List<string> urls)
-        {
-            List<byte[]> bytes = new List<byte[]>();
-            List<Task<byte[]>> tasks = new List<Task<byte[]>>();
-            foreach (string url in urls)
-            {
-                tasks.Add(pdfGetAsync(url));
-            }
-            foreach (Task<byte[]> task in tasks)
-            {
-                byte[] taskbytes = await task;
-                if (taskbytes.Length > 0)
-                {
-                    bytes.Add(await task);
-                }
-            }
-            return bytes;
-        }
-
         private async Task<string> webGetAsync(string url)
         {
             Task<string> getHtml = Task<string>.Factory.StartNew(() => webGet(url, 0));
             string html = await getHtml;
             return html;
-        }
-
-        private async Task<byte[]> pdfGetAsync(string url) //currently unused. Might try to incorporate later.
-        {
-            Task<byte[]> getBytes = Task.Factory.StartNew(() => {
-                byte[] pdfdata = downloadPDF(url);
-                return pdfdata;
-            });
-            byte[] data = await getBytes;
-            return data;
-
         }
 
         private string webGet(string url, int trycount)
@@ -413,7 +373,6 @@ namespace Edgarcrawler
 
         private async void populatePages()
         {
-
             Task<List<string>> thread1 = Task<List<string>>.Factory.StartNew(() => webGetThreadWrapper(CIKtable[0][1], CIKtable[0][0]));
             Task<List<string>> thread2 = Task<List<string>>.Factory.StartNew(() => webGetThreadWrapper(CIKtable[1][1], CIKtable[1][0]));
             Task<List<string>> thread3 = Task<List<string>>.Factory.StartNew(() => webGetThreadWrapper(CIKtable[2][1], CIKtable[2][0]));
@@ -444,7 +403,6 @@ namespace Edgarcrawler
                     }
                 }
                 Application.DoEvents();
-
             }
         }
 
@@ -573,8 +531,6 @@ namespace Edgarcrawler
             if (afterCheck.Checked)
             {
                 afterDate = new DateTime(afterDatePicker.Value.Year, afterDatePicker.Value.Month, afterDatePicker.Value.Day);
-                
-
                 filterLabel.Text = "Date filter set!";
             }
             if (beforeCheck.Checked)
