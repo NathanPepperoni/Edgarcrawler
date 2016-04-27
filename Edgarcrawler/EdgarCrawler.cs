@@ -41,9 +41,17 @@ namespace Edgarcrawler
                     Directory.CreateDirectory(path + "LLC\\");
                     Directory.CreateDirectory(path + "LP\\");
                     Directory.CreateDirectory(path + "LTD\\");
-                    string[] filterData = File.ReadAllText(appdata + "filter").Split('\n');
-                    afterDate = DateTime.Parse(filterData[0]);
-                    beforeDate = DateTime.Parse(filterData[1]);
+                    try
+                    {
+                        string[] filterData = File.ReadAllText(appdata + "filter").Split('\n');
+                        afterDate = DateTime.Parse(filterData[0]);
+                        beforeDate = DateTime.Parse(filterData[1]);
+                    }
+                    catch
+                    {
+                        afterDate = DateTime.MinValue;
+                        beforeDate = DateTime.MaxValue;
+                    }
                     int count = int.Parse(File.ReadAllText(appdata + "bookmark"));
                     totalBytes = long.Parse(File.ReadAllText(appdata + "size"));
                     CIKtable = CIKtable.Skip(count).ToList();
@@ -88,7 +96,7 @@ namespace Edgarcrawler
 
         private async Task<List<List<string>>> FetchCIK()
         {
-            string HTML = webGet("https://www.sec.gov/edgar/NYU/cik.coleft.c",0);
+            string HTML = webGet("https://www.sec.gov/edgar/NYU/cik.coleft.c");
             List<string> datasplit = HTML.Split('\n').ToList();
             List<List<string>> table = new List<List<string>>();
 
@@ -207,40 +215,36 @@ namespace Edgarcrawler
 
         private byte[] downloadPDF(string url)
         {
-            WebClient pdfWebClient = new WebClient();
-            byte[] pdfData = new byte[] { };
-            try {
-                pdfData = pdfWebClient.DownloadData(url);
+            int trycount = 0;
+            while (trycount < 10) {
+                using (WebClient pdfWebClient = new WebClient())
+                {
+                    byte[] pdfData = new byte[] { };
+                    try
+                    {
+                        return pdfWebClient.DownloadData(url);
+                    }
+                    catch
+                    {
+                        if (trycount >= 60)
+                        {
+                            if (MessageBox.Show("Unable to connect to \"http://www.sec.gov\". Retry connection?", "Network error", MessageBoxButtons.YesNo) == DialogResult.Yes)
+                            {
+                                trycount = 0;
+                            }
+                            else
+                            {
+                                Application.Exit();
+                                return null;
+                            }
+                        }
+                        trycount += 1;
+                    }
+                }
             }
-            catch
-            {
-                pdfData = downloadPDF(url, 0);
-            }
-            return pdfData;
+            return null;
         }
 
-        private byte[] downloadPDF(string url, int attempts)
-        {
-            WebClient pdfWebClient = new WebClient();
-            byte[] pdfData = new byte[] { };
-            try
-            {
-                pdfData = pdfWebClient.DownloadData(url);
-            }
-            catch
-            {
-                if (attempts > 5)
-                {
-                    return new byte[] { };
-                }
-                else
-                {
-                    System.Threading.Thread.Sleep(10000);
-                    downloadPDF(url, attempts + 1);
-                }
-            }
-            return pdfData;
-        }
 
         private List<string> extractPdfURL(List<string> urls)
         {
@@ -317,50 +321,58 @@ namespace Edgarcrawler
 
         private async Task<string> webGetAsync(string url)
         {
-            Task<string> getHtml = Task<string>.Factory.StartNew(() => webGet(url, 0));
+            Task<string> getHtml = Task<string>.Factory.StartNew(() => webGet(url));
             string html = await getHtml;
             return html;
         }
 
-        private string webGet(string url, int trycount)
+        private string webGet(string url)
         {
-            try
+            int trycount = 0;
+            while (trycount < 60)
             {
-                WebRequest request = WebRequest.Create(url);
-                request.Timeout = 60000;
-                WebResponse response = request.GetResponse();
-                Stream dataStream = response.GetResponseStream();
-                StreamReader reader = new StreamReader(dataStream);
-                string html = reader.ReadToEnd();
-                reader.Close();
-                dataStream.Close();
-                response.Close();
-                return html;
-            }
-            catch (WebException)
-            {
-                if (trycount > 60)
+                try
                 {
-
-                    if (MessageBox.Show("Unable to connect to \"http://www.sec.gov\". Retry connection?", "Network error", MessageBoxButtons.YesNo) == DialogResult.Yes)
+                    WebRequest request = WebRequest.Create(url);
+                    request.Timeout = 60000;
+                    using (WebResponse response = request.GetResponse())
                     {
-                        return webGet(url, 0);
+                        using (Stream dataStream = response.GetResponseStream())
+                        {
+                            using (StreamReader reader = new StreamReader(dataStream))
+                            {
+                                string html = reader.ReadToEnd();
+                                reader.Close();
+                                dataStream.Close();
+                                response.Close();
+                                return html;
+                            }
+                        }
+                    }
+                }
+                catch
+                {
+                    if (trycount >= 60)
+                    {
+                        if (MessageBox.Show("Unable to connect to \"http://www.sec.gov\". Retry connection?", "Network error", MessageBoxButtons.YesNo) == DialogResult.Yes)
+                        {
+                            trycount = 0;
+                        }
+                        else
+                        {
+                            Application.Exit();
+                            return null;
+                        }
                     }
                     else
                     {
-                        Application.Exit();
-                        return null;
+                        System.Threading.Thread.Sleep(10000);
+                        trycount += 1;
                     }
-
-                }
-                else
-                {
-                    System.Threading.Thread.Sleep(10000);
-                    File.WriteAllText(appdata + "reconnects", (int.Parse(File.ReadAllText(appdata+"reconnects"))+trycount).ToString());
-                    return webGet(url, trycount + 1);
+                    
                 }
             }
-            
+            return null;
         }
 
 
@@ -379,7 +391,7 @@ namespace Edgarcrawler
             Task<List<string>> thread4 = Task<List<string>>.Factory.StartNew(() => webGetThreadWrapper(CIKtable[3][1], CIKtable[3][0]));
             Task<List<string>>[] threads = new Task<List<string>>[] { thread1, thread2, thread3, thread4 };
 
-            int i = 4;
+            int i = 3;
 
             while (i < CIKtable.Count)
             {
@@ -408,7 +420,7 @@ namespace Edgarcrawler
 
         private List<string> webGetThreadWrapper(string CIK, string companyName)
         {
-            return new List<string> { webGet("http://www.sec.gov/cgi-bin/browse-edgar?action=getcompany&CIK=" + CIK + "&type=regdex&dateb=&owner=exclude&count=100", 0), companyName};
+            return new List<string> { webGet("http://www.sec.gov/cgi-bin/browse-edgar?action=getcompany&CIK=" + CIK + "&type=regdex&dateb=&owner=exclude&count=100"), companyName};
         }
 
         private void scan()
