@@ -1,4 +1,5 @@
 ﻿using System;
+using System.Collections;
 using System.Collections.Generic;
 using System.ComponentModel;
 using System.Data;
@@ -238,7 +239,7 @@ namespace Edgarcrawler
                                 return null;
                             }
                         }
-                        trycount += 1;
+                        trycount++;
                     }
                 }
             }
@@ -367,7 +368,7 @@ namespace Edgarcrawler
                     else
                     {
                         System.Threading.Thread.Sleep(10000);
-                        trycount += 1;
+                        trycount++;
                     }
                     
                 }
@@ -385,14 +386,15 @@ namespace Edgarcrawler
 
         private async void populatePages()
         {
-            Task<List<string>> thread1 = Task<List<string>>.Factory.StartNew(() => webGetThreadWrapper(CIKtable[0][1], CIKtable[0][0]));
-            Task<List<string>> thread2 = Task<List<string>>.Factory.StartNew(() => webGetThreadWrapper(CIKtable[1][1], CIKtable[1][0]));
-            Task<List<string>> thread3 = Task<List<string>>.Factory.StartNew(() => webGetThreadWrapper(CIKtable[2][1], CIKtable[2][0]));
-            Task<List<string>> thread4 = Task<List<string>>.Factory.StartNew(() => webGetThreadWrapper(CIKtable[3][1], CIKtable[3][0]));
-            Task<List<string>>[] threads = new Task<List<string>>[] { thread1, thread2, thread3, thread4 };
+            Dictionary<string, Task<List<string>>> threads = new Dictionary<string, Task<List<string>>>();
+            int i = 0;
+            while (i < 4)
+            {
+                threads.Add("thread"+i.ToString(),Task<List<string>>.Factory.StartNew(() => webGetThreadWrapper(CIKtable[i][1], CIKtable[0][0])));
+                i++;
+            }
 
-            int i = 3;
-
+            i = 3;
             while (i < CIKtable.Count)
             {
                 if (!mainThreadAlive)
@@ -404,11 +406,11 @@ namespace Edgarcrawler
                     int j = 0;
                     while (j < 4)
                     {
-                        if (threads[j].IsCompleted)
+                        if (threads["thread"+j.ToString()].IsCompleted)
                         {
-                            List<string> result = await threads[j];
+                            List<string> result = await threads["thread" + j.ToString()];
                             pages.Enqueue(result);
-                            threads[j] = Task<List<string>>.Factory.StartNew(() => webGetThreadWrapper(CIKtable[i][1], CIKtable[i][0]));
+                            threads["thread" + j.ToString()] = Task<List<string>>.Factory.StartNew(() => webGetThreadWrapper(CIKtable[i][1], CIKtable[i][0]));
                             i++;
                         }
                         j++;
@@ -476,8 +478,8 @@ namespace Edgarcrawler
                     label1.Text = "now processing: " + page[1].Substring(0, Math.Min(15, page[1].Length));
                     progressBar.Refresh();
                     label1.Refresh();
-                    completed += 1;
-                    processed += 1;
+                    completed++;
+                    processed++;
                     long timeTaken = (DateTime.Now.Ticks - ts) / 10000;
                     sumTime = (sumTime + timeTaken);
                     remainingTime = (countTotal - processed) * sumTime / processed;
